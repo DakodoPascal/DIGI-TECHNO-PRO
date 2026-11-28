@@ -147,579 +147,1712 @@
     </main>
   </div>
 
-  <!-- Charger d'abord la bibliothèque Supabase, puis le code de l'application. -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script>
-    'use strict';
-    // Remplacez ces deux valeurs par Project URL et Publishable key dans Supabase.
-    // La clé Publishable/anon peut être utilisée dans le navigateur avec des politiques RLS correctes.
-    // NE JAMAIS placer ici une clé secret ou service_role.
-    const SUPABASE_URL = 'https://lpqjhhvspalimzahehjb.supabase.co';
-    const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_XoTNhLqI8y5ObjZfUtjDeA__cbhg5Ub';
+  
+<!-- 1. Bibliothèque Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    const CONFIGURED = /^https:\/\/.+\.supabase\.co$/.test(SUPABASE_URL) &&
-      SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_') &&
-      typeof window.supabase !== 'undefined';
-    const supabaseClient = CONFIGURED
-      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
-      : null;
+<script>
+'use strict';
 
-    // Toutes les opérations sensibles de gestion des comptes passent par cette Edge Function.
-    // La clé service_role n'est jamais utilisée ni stockée dans ce fichier.
-    const ADMIN_API_URL = `${SUPABASE_URL}/functions/v1/admin-api`;
+/* =====================================================
+   1. CONFIGURATION SUPABASE
+===================================================== */
 
-    const $ = (id) => document.getElementById(id);
-    let currentUser = null;
-    let currentProfile = null;
-    let editingPhotoId = null;
-    let remotePhotos = [];
+const SUPABASE_URL = 'https://lpqjhhvspalimzahehjb.supabase.co';
 
-    const DEFAULT_PHOTOS = [
-      {titre:'Belle fille',url:'https://i.ibb.co/kVQWBVMK/Generated-Image-October-01-2025-12-54-PM.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/FLDybJ67/1766571928677.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/fGzLkNfK/Generated-Image-October-02-2025-7-50-AM.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/99RmQRm0/Generated-Image-October-02-2025-1-41-PM.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/24nQ0rp/Generated-Image-October-03-2025-11-59-AM.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/Zzd2DB1s/Generated-Image-October-06-2025-6-28-PM.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/SXjj6rPr/1766382945326.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/C3m0dLnQ/1766384085690.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/kLWKFVQ/1766482212943.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/BKymz2rm/Generated-Image-October-02-2025-7-57-AM.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/BH88vdXm/Generated-Image-October-01-2025-2-24-PM.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/j9JGsLCp/file-00000000360c8230b61a087e5b0ca598.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/604GkdbH/file-00000000d0dc81fd8f289a0b44cb0b4f.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/8g8zT0Kd/file-0000000047a881f4a89f8081cb4db8e3.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/VY4GF8c6/Chat-GPT-Image-24-avr-2026-12-23-39.png',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/6JpgTDCZ/Screenshot-20261112-211135.jpg',prompt:'Jolie photo.'},
-      {titre:'Belle fille',url:'https://i.ibb.co/pBYG94Pk/Screenshot-20261112-211232.jpg',prompt:'Jolie photo.'},
-      {titre:'Digital',url:'https://i.ibb.co/DdRH9pj/IMG-20250927-WA0114-2.jpg',prompt:'Crée un album de photos avec un bouton pour agrandir la photo et un bouton Réduire. La galerie peut contenir de nombreuses photos avec leurs prompts.'},
-      {titre:'Photo de voyage',url:'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1000&q=80',prompt:'Une photographie professionnelle d’une personne préparant un voyage dans un aéroport moderne. Image réaliste, éclairage naturel, détails nets.'},
-      {titre:'Photo de mariage',url:'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1000&q=80',prompt:'Un magnifique mariage romantique dans un jardin fleuri. Les mariés portent des vêtements élégants, une arche de fleurs décore l’arrière-plan. Photographie professionnelle, lumière naturelle, rendu cinématographique.'},
-      {titre:'Photo smartphone',url:'https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?auto=format&fit=crop&w=1000&q=80',prompt:'Une photographie publicitaire moderne mettant en scène un smartphone. Composition créative, détails réalistes, éclairage de studio et qualité professionnelle.'},
-      {titre:'Photo à la plage',url:'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80',prompt:'Une magnifique scène de plage tropicale avec une mer turquoise, du sable blanc et une lumière naturelle. Photographie haute définition, couleurs harmonieuses et rendu réaliste.'}
-    ];
-    function setStatus(text, isError = false) {
-      $('supabase-status').textContent = text;
-      $('supabase-status').style.color = isError ? '#b42318' : '#344054';
-    }
-    function showMessage(text = '', type = '') {
-      $('message').textContent = text;
-      $('message').className = 'message ' + type;
-    }
-    function showForm(formId) {
-      document.querySelectorAll('.auth-container .form').forEach(form => form.classList.remove('active'));
-      const form = $(formId);
-      if (form) form.classList.add('active');
-      showMessage();
-    }
-    function ensureSupabase() {
-      if (!supabaseClient) {
-        showMessage('Configurez d’abord SUPABASE_URL et SUPABASE_PUBLISHABLE_KEY dans le code.', 'error');
-        setStatus('Configuration Supabase manquante : le site ne peut pas authentifier les utilisateurs.', true);
-        return false;
-      }
-      return true;
-    }
-    // Appel authentifié à Supabase Edge Function admin-api.
-    // Le serveur vérifie lui-même le JWT, le rôle super_admin et l'état actif du compte.
-    async function callAdminApi(action, parameters = {}) {
-      if (!supabaseClient) throw new Error('Supabase n’est pas configuré.');
-      const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
-      if (sessionError) throw sessionError;
-      const accessToken = sessionData?.session?.access_token;
-      if (!accessToken) throw new Error('Session expirée. Reconnectez-vous.');
+const SUPABASE_PUBLISHABLE_KEY =
+  'sb_publishable_XoTNhLqI8y5ObjZfUtjDeA__cbhg5Ub';
 
-      const response = await fetch(ADMIN_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-          'apikey': SUPABASE_PUBLISHABLE_KEY
+const CONFIGURED =
+  /^https:\/\/.+\.supabase\.co$/.test(SUPABASE_URL) &&
+  SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_') &&
+  typeof window.supabase !== 'undefined';
+
+const supabaseClient = CONFIGURED
+  ? window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY
+    )
+  : null;
+
+const ADMIN_API_URL =
+  `${SUPABASE_URL}/functions/v1/admin-api`;
+
+const $ = (id) => document.getElementById(id);
+
+let currentUser = null;
+let currentProfile = null;
+let editingPhotoId = null;
+let remotePhotos = [];
+
+/* =====================================================
+   2. PHOTOS PAR DÉFAUT
+===================================================== */
+
+const DEFAULT_PHOTOS = [
+  {titre:'Belle fille',url:'https://i.ibb.co/kVQWBVMK/Generated-Image-October-01-2025-12-54-PM.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/FLDybJ67/1766571928677.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/fGzLkNfK/Generated-Image-October-02-2025-7-50-AM.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/99RmQRm0/Generated-Image-October-02-2025-1-41-PM.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/24nQ0rp/Generated-Image-October-03-2025-11-59-AM.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/Zzd2DB1s/Generated-Image-October-06-2025-6-28-PM.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/SXjj6rPr/1766382945326.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/C3m0dLnQ/1766384085690.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/kLWKFVQ/1766482212943.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/BKymz2rm/Generated-Image-October-02-2025-7-57-AM.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/BH88vdXm/Generated-Image-October-01-2025-2-24-PM.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/j9JGsLCp/file-00000000360c8230b61a087e5b0ca598.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/604GkdbH/file-00000000d0dc81fd8f289a0b44cb0b4f.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/8g8zT0Kd/file-0000000047a881f4a89f8081cb4db8e3.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/VY4GF8c6/Chat-GPT-Image-24-avr-2026-12-23-39.png',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/6JpgTDCZ/Screenshot-20261112-211135.jpg',prompt:'Jolie photo.'},
+  {titre:'Belle fille',url:'https://i.ibb.co/pBYG94Pk/Screenshot-20261112-211232.jpg',prompt:'Jolie photo.'},
+  {titre:'Digital',url:'https://i.ibb.co/DdRH9pj/IMG-20250927-WA0114-2.jpg',prompt:'Crée un album de photos avec un bouton pour agrandir la photo et un bouton Réduire. La galerie peut contenir de nombreuses photos avec leurs prompts.'},
+  {titre:'Photo de voyage',url:'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1000&q=80',prompt:'Une photographie professionnelle d’une personne préparant un voyage dans un aéroport moderne. Image réaliste, éclairage naturel, détails nets.'},
+  {titre:'Photo de mariage',url:'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1000&q=80',prompt:'Un magnifique mariage romantique dans un jardin fleuri. Les mariés portent des vêtements élégants, une arche de fleurs décore l’arrière-plan. Photographie professionnelle, lumière naturelle, rendu cinématographique.'},
+  {titre:'Photo smartphone',url:'https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?auto=format&fit=crop&w=1000&q=80',prompt:'Une photographie publicitaire moderne mettant en scène un smartphone. Composition créative, détails réalistes, éclairage de studio et qualité professionnelle.'},
+  {titre:'Photo à la plage',url:'https://images.unsplash.com/photo-1507525428034-b723cf961e3d?auto=format&fit=crop&w=1000&q=80',prompt:'Une magnifique scène de plage tropicale avec une mer turquoise, du sable blanc et une lumière naturelle. Photographie haute définition, couleurs harmonieuses et rendu réaliste.'}
+];
+
+/* =====================================================
+   3. MESSAGES ET CONFIGURATION
+===================================================== */
+
+function setStatus(text, isError = false) {
+  $('supabase-status').textContent = text;
+  $('supabase-status').style.color =
+    isError ? '#b42318' : '#344054';
+}
+
+function showMessage(text = '', type = '') {
+  $('message').textContent = text;
+  $('message').className = 'message ' + type;
+}
+
+function showForm(formId) {
+  document.querySelectorAll('.auth-container .form')
+    .forEach(form => form.classList.remove('active'));
+
+  const form = $(formId);
+
+  if (form) form.classList.add('active');
+
+  showMessage();
+}
+
+function ensureSupabase() {
+  if (!supabaseClient) {
+    showMessage(
+      'Configurez d’abord SUPABASE_URL et SUPABASE_PUBLISHABLE_KEY.',
+      'error'
+    );
+
+    setStatus(
+      'Configuration Supabase manquante.',
+      true
+    );
+
+    return false;
+  }
+
+  return true;
+}
+
+/* =====================================================
+   4. NOUVEL APPEL ADMIN-API CORRIGÉ
+===================================================== */
+
+async function callAdminApi(action, parameters = {}) {
+
+  if (!supabaseClient) {
+    throw new Error('Supabase n’est pas configuré.');
+  }
+
+  // Récupération de la session
+  const {
+    data: sessionData,
+    error: sessionError
+  } = await supabaseClient.auth.getSession();
+
+  if (sessionError) {
+    throw sessionError;
+  }
+
+  const accessToken =
+    sessionData?.session?.access_token;
+
+  if (!accessToken) {
+    throw new Error(
+      'Session expirée. Reconnectez-vous.'
+    );
+  }
+
+  // Appel de la fonction Edge Function
+  const { data, error } =
+    await supabaseClient.functions.invoke(
+      'admin-api',
+      {
+        body: {
+          action,
+          ...parameters
         },
-        body: JSON.stringify({ action, ...parameters })
-      });
 
-      const responseText = await response.text();
-      let result = {};
-      try { result = responseText ? JSON.parse(responseText) : {}; }
-      catch (_) { throw new Error('La fonction admin-api a retourné une réponse non JSON.'); }
-
-      if (!response.ok || result.success === false) {
-        throw new Error(result.error || result.message || `Erreur admin-api (${response.status}).`);
-      }
-      return result;
-    }
-
-    function getApiUsers(result) {
-      const candidates = [
-        result?.users,
-        result?.utilisateurs,
-        result?.data?.users,
-        result?.data?.utilisateurs,
-        result?.data
-      ];
-      return candidates.find(Array.isArray) || [];
-    }
-
-    function normalizeApiUser(user) {
-      return {
-        id: user.id,
-        email: user.email || '',
-        full_name: user.full_name || user.nom_complet || user.user_metadata?.full_name || user.email || 'Sans nom',
-        role: user.role || user.profil?.role || 'user',
-        is_active: user.is_active ?? user.est_actif ?? true,
-        login_count: user.login_count ?? user.nombre_connexions ?? 0,
-        created_at: user.created_at || user.createdAt || null
-      };
-    }
-
-    function readStat(stats, names, fallback) {
-      for (const name of names) {
-        if (stats && stats[name] !== undefined && stats[name] !== null) return Number(stats[name]) || 0;
-      }
-      return fallback;
-    }
-
-    function safeHttpUrl(value) {
-      try {
-        const parsed = new URL(value);
-        return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : null;
-      } catch (_) { return null; }
-    }
-    function formatDate(value) {
-      if (!value) return 'Date inconnue';
-      const date = new Date(value);
-      return Number.isNaN(date.getTime()) ? 'Date inconnue' : date.toLocaleString('fr-FR');
-    }
-
-    // Navigation entre les formulaires et affichage/masquage des mots de passe.
-    document.querySelectorAll('[data-show-form]').forEach(link => {
-      link.addEventListener('click', event => { event.preventDefault(); showForm(link.dataset.showForm); });
-    });
-    document.querySelectorAll('.toggle-password').forEach(icon => {
-      icon.addEventListener('click', () => {
-        const input = $(icon.dataset.target);
-        if (!input) return;
-        input.type = input.type === 'password' ? 'text' : 'password';
-        icon.textContent = input.type === 'password' ? '👁️' : '🙈';
-      });
-    });
-
-    // Inscription avec Supabase Auth. Le profil est créé automatiquement par le trigger SQL fourni.
-    $('registerForm').addEventListener('submit', async event => {
-      event.preventDefault();
-      if (!ensureSupabase()) return;
-      const name = $('registerName').value.trim();
-      const email = $('registerEmail').value.trim().toLowerCase();
-      const password = $('registerPassword').value;
-      if (password !== $('confirmPassword').value) return showMessage('Les mots de passe ne correspondent pas.', 'error');
-      if (password.length < 8) return showMessage('Le mot de passe doit contenir au moins 8 caractères.', 'error');
-      const button = event.submitter;
-      if (button) button.disabled = true;
-      try {
-        const { data, error } = await supabaseClient.auth.signUp({
-          email, password, options: { data: { full_name: name },
-           emailRedirectTo: "https://dakodopascal.github.io/DIGI-TECHNO-PRO/" }
-        });
-        if (error) throw error;
-        $('registerForm').reset();
-        if (data.session) {
-          showMessage('Inscription réussie. Votre espace va s’ouvrir.', 'success');
-          await openUserSession(data.session);
-        } else {
-          showForm('loginForm');
-          showMessage('Inscription enregistrée. Consultez votre email pour confirmer votre adresse avant de vous connecter.', 'success');
+        headers: {
+          Authorization: `Bearer ${accessToken}`
         }
-      } catch (error) {
-        console.error(error); showMessage(error.message || 'Erreur pendant la création du compte.', 'error');
-      } finally { if (button) button.disabled = false; }
-    });
+      }
+    );
 
-    // Connexion sécurisée par Supabase Auth.
-    $('loginForm').addEventListener('submit', async event => {
-      event.preventDefault();
-      if (!ensureSupabase()) return;
-      const email = $('loginEmail').value.trim().toLowerCase();
-      const password = $('loginPassword').value;
-      const button = event.submitter;
-      if (button) button.disabled = true;
-      try {
-        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        $('loginForm').reset();
-        await openUserSession(data.session);
-      } catch (error) {
-        console.error(error); showMessage(error.message || 'Connexion impossible. Vérifiez vos identifiants.', 'error');
-      } finally { if (button) button.disabled = false; }
-    });
+  // Gestion des erreurs
+  if (error) {
+    console.error(
+      'Erreur détaillée admin-api :',
+      error
+    );
 
-    // Réinitialisation : seul un lien envoyé par email permet de choisir un nouveau mot de passe.
-    $('forgotForm').addEventListener('submit', async event => {
-      event.preventDefault();
-      if (!ensureSupabase()) return;
-      const email = $('forgotEmail').value.trim().toLowerCase();
-      try {
-        const redirectTo = window.location.origin + window.location.pathname;
-        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
-        if (error) throw error;
-        $('forgotForm').reset();
-        showMessage('Si cette adresse est enregistrée, un lien de réinitialisation vient d’être envoyé.', 'success');
-      } catch (error) { console.error(error); showMessage(error.message || 'Envoi du lien impossible.', 'error'); }
-    });
-    $('resetPasswordForm').addEventListener('submit', async event => {
-      event.preventDefault();
-      if (!ensureSupabase()) return;
-      const password = $('newPassword').value;
-      if (password.length < 8) return showMessage('Le mot de passe doit contenir au moins 8 caractères.', 'error');
-      if (password !== $('confirmNewPassword').value) return showMessage('Les mots de passe ne correspondent pas.', 'error');
-      try {
-        const { error } = await supabaseClient.auth.updateUser({ password });
-        if (error) throw error;
-        $('resetPasswordForm').reset();
-        await supabaseClient.auth.signOut();
-        showForm('loginForm');
-        showMessage('Mot de passe modifié. Vous pouvez vous reconnecter.', 'success');
-      } catch (error) { console.error(error); showMessage(error.message || 'Modification du mot de passe impossible.', 'error'); }
-    });
-    async function openUserSession(session) {
-      if (!session || !session.user) return;
-      currentUser = session.user;
-      try {
-        // Ne sélectionner que les colonnes confirmées dans la table profiles.
-        const { data: profile, error } = await supabaseClient.from('profiles')
-          .select('id,email,role,is_active')
-          .eq('id', currentUser.id).single();
-        if (error) throw error;
+    let details = error.message ||
+      'Impossible de contacter admin-api.';
 
-        if (!profile || profile.is_active !== true) {
-          await supabaseClient.auth.signOut();
-          currentUser = null;
-          currentProfile = null;
-          $('authContainer').classList.remove('hidden');
-          showForm('loginForm');
-          showMessage('Ce compte est désactivé ou son profil est indisponible. Contactez l’administrateur.', 'error');
-          return;
+    // Tenter de lire le message renvoyé par le serveur
+    if (error.context) {
+      try {
+        const response = error.context;
+
+        if (typeof response.json === 'function') {
+          const serverError = await response.clone().json();
+
+          details =
+            serverError.error ||
+            serverError.message ||
+            details;
         }
-
-        currentProfile = profile;
-        // L'accès au tableau est une indication d'interface ; chaque opération privilégiée
-        // est aussi contrôlée côté serveur par admin-api.
-        $('authContainer').classList.add('hidden');
-        if (profile.role === 'super_admin') {
-          $('adminDashboardPage').classList.add('active');
-          $('dashboardPage').classList.remove('active');
-          const displayName = currentUser.user_metadata?.full_name || profile.email || 'Administrateur';
-          $('adminWelcome').textContent = 'Bienvenue, ' + displayName + '.';
-          await renderAdminDashboard();
-        } else {
-          $('adminDashboardPage').classList.remove('active');
-          $('dashboardPage').classList.add('active');
-          showPage('home');
-          await loadPhotos();
-        }
-        setStatus('Connecté à Supabase : authentification active.', false);
-      } catch (error) {
-        console.error(error);
-        await supabaseClient.auth.signOut();
-        currentUser = null;
-        currentProfile = null;
-        $('authContainer').classList.remove('hidden');
-        $('dashboardPage').classList.remove('active');
-        $('adminDashboardPage').classList.remove('active');
-        showForm('loginForm');
-        showMessage('Impossible de charger votre profil : ' + (error.message || 'erreur inconnue'), 'error');
+      } catch (_) {
+        // Conserver le message initial
       }
     }
 
-    async function signOut() {
-      if (supabaseClient) {
-        const { error } = await supabaseClient.auth.signOut();
-        if (error) console.error(error);
-      }
-      currentUser = null; currentProfile = null;
-      $('dashboardPage').classList.remove('active');
-      $('adminDashboardPage').classList.remove('active');
-      $('authContainer').classList.remove('hidden');
-      showForm('loginForm');
-      showMessage('Vous êtes déconnecté.', 'success');
-    }
-    $('userLogoutButton').addEventListener('click', signOut);
-    $('adminLogoutButton').addEventListener('click', signOut);
+    throw new Error(details);
+  }
 
-    // Galerie : anciennes images conservées comme exemples intégrés au site + publications Supabase.
-    async function loadPhotos() {
-      if (!supabaseClient) return;
-      try {
-        const { data, error } = await supabaseClient.from('site_photos')
-          .select('id,title,image_url,prompt,created_at').order('created_at', { ascending: false });
-        if (error) throw error;
-        remotePhotos = data || [];
-        renderAlbum();
-        if (currentProfile && currentProfile.role === 'super_admin') renderAdminPhotos();
-      } catch (error) {
-        console.error(error);
-        setStatus('Erreur de lecture des publications : ' + error.message, true);
-        renderAlbum();
-      }
+  if (data?.success === false) {
+    throw new Error(
+      data.error ||
+      data.message ||
+      'Une erreur est survenue.'
+    );
+  }
+
+  return data || {};
+}
+
+/* =====================================================
+   5. NORMALISATION DES UTILISATEURS
+===================================================== */
+
+function getApiUsers(result) {
+  const candidates = [
+    result?.users,
+    result?.utilisateurs,
+    result?.data?.users,
+    result?.data?.utilisateurs,
+    result?.data
+  ];
+
+  return candidates.find(Array.isArray) || [];
+}
+
+function normalizeApiUser(user) {
+  return {
+    id: user.id,
+    email: user.email || '',
+
+    full_name:
+      user.full_name ||
+      user.nom_complet ||
+      user.user_metadata?.full_name ||
+      user.email ||
+      'Sans nom',
+
+    role:
+      user.role ||
+      user.profil?.role ||
+      'user',
+
+    is_active:
+      user.is_active ??
+      user.est_actif ??
+      true,
+
+    login_count:
+      user.login_count ??
+      user.nombre_connexions ??
+      0,
+
+    created_at:
+      user.created_at ||
+      user.createdAt ||
+      null
+  };
+}
+
+function readStat(stats, names, fallback) {
+  for (const name of names) {
+    if (
+      stats &&
+      stats[name] !== undefined &&
+      stats[name] !== null
+    ) {
+      return Number(stats[name]) || 0;
     }
-    function createPhotoCard(photo) {
-      const card = document.createElement('article'); card.className = 'photo-card';
-      const title = document.createElement('h3'); title.className = 'photo-title'; title.textContent = photo.title || photo.titre || 'Photo';
-      const frame = document.createElement('div'); frame.className = 'photo-frame';
-      const img = document.createElement('img'); img.src = photo.image_url || photo.url; img.alt = title.textContent; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
-      img.onerror = () => { img.alt = 'Image indisponible : ' + title.textContent; img.style.objectFit = 'contain'; };
-      frame.appendChild(img);
-      const actions = document.createElement('div'); actions.className = 'actions';
-      const zoom = document.createElement('button'); zoom.type = 'button'; zoom.className = 'zoom-btn'; zoom.textContent = 'Zoomer'; zoom.addEventListener('click', () => enlargePhoto(img.src));
-      const promptButton = document.createElement('button'); promptButton.type = 'button'; promptButton.className = 'prompt-btn'; promptButton.textContent = 'Afficher le prompt';
-      const promptBox = document.createElement('div'); promptBox.className = 'prompt-box'; promptBox.hidden = true;
-      const promptTitle = document.createElement('div'); promptTitle.className = 'prompt-title'; promptTitle.textContent = 'Prompt de cette photo :';
-      const promptText = document.createElement('p'); promptText.textContent = photo.prompt || 'Aucun prompt disponible.';
-      promptBox.append(promptTitle, promptText);
-      promptButton.addEventListener('click', () => { promptBox.hidden = !promptBox.hidden; promptButton.textContent = promptBox.hidden ? 'Afficher le prompt' : 'Masquer le prompt'; });
-      actions.append(zoom, promptButton); card.append(title, frame, actions, promptBox); return card;
-    }
-    function renderAlbum() {
-      const album = $('album'); album.replaceChildren();
-      const allPhotos = [...DEFAULT_PHOTOS, ...remotePhotos.map(p => ({ id:p.id, title:p.title, image_url:p.image_url, prompt:p.prompt }))];
-      allPhotos.forEach(photo => album.appendChild(createPhotoCard(photo)));
-    }
-    function enlargePhoto(url) {
-      const safeUrl = safeHttpUrl(url); if (!safeUrl) return;
-      $('zoomImage').src = safeUrl; $('zoomOverlay').classList.add('active'); document.body.style.overflow = 'hidden'; $('reducePhotoButton').focus();
-    }
-    function reducePhoto() { $('zoomOverlay').classList.remove('active'); $('zoomImage').src = ''; document.body.style.overflow = ''; }
-    $('reducePhotoButton').addEventListener('click', reducePhoto);
-    $('zoomOverlay').addEventListener('click', event => { if (event.target === $('zoomOverlay')) reducePhoto(); });
-    document.addEventListener('keydown', event => { if (event.key === 'Escape') reducePhoto(); });
-    // Administration des photos : CRUD dans la table site_photos (pas dans localStorage).
-    function photoStatus(text, ok = false) { $('photoAdminStatus').textContent = text; $('photoAdminStatus').style.color = ok ? '#198754' : '#c62828'; }
-    function previewPhoto() {
-      const url = $('photoAdminUrl').value.trim(); const img = $('photoAdminPreview'); const msg = $('photoAdminPreviewMessage');
-      const safeUrl = safeHttpUrl(url);
-      if (!url || !safeUrl) { img.removeAttribute('src'); img.style.display = 'none'; msg.textContent = 'Saisissez un lien HTTP ou HTTPS valide pour afficher l’aperçu.'; return; }
-      img.onload = () => { img.style.display = 'inline-block'; msg.textContent = 'Aperçu chargé.'; };
-      img.onerror = () => { img.style.display = 'none'; msg.textContent = 'Image introuvable. Vérifiez le lien.'; };
-      img.src = safeUrl;
-    }
-    $('photoAdminUrl').addEventListener('input', previewPhoto);
-    function resetPhotoForm() {
-      $('photoAdminForm').reset(); editingPhotoId = null;
-      $('photoAdminSubmitButton').textContent = 'Valider et publier'; $('photoAdminCancelButton').classList.add('hidden');
-      $('photoAdminPreview').removeAttribute('src'); $('photoAdminPreview').style.display = 'none'; $('photoAdminPreviewMessage').textContent = 'L’aperçu de la photo apparaîtra ici.'; photoStatus('', true);
-    }
-    $('photoAdminCancelButton').addEventListener('click', resetPhotoForm);
-    $('photoAdminForm').addEventListener('submit', async event => {
+  }
+
+  return fallback;
+}
+
+function safeHttpUrl(value) {
+  try {
+    const parsed = new URL(value);
+
+    return (
+      parsed.protocol === 'https:' ||
+      parsed.protocol === 'http:'
+    ) ? parsed.href : null;
+
+  } catch (_) {
+    return null;
+  }
+}
+
+function formatDate(value) {
+  if (!value) return 'Date inconnue';
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime())
+    ? 'Date inconnue'
+    : date.toLocaleString('fr-FR');
+}
+
+/* =====================================================
+   6. NAVIGATION ET MOT DE PASSE
+===================================================== */
+
+document.querySelectorAll('[data-show-form]')
+  .forEach(link => {
+
+    link.addEventListener('click', event => {
       event.preventDefault();
-      if (!currentProfile || currentProfile.role !== 'super_admin') return photoStatus('Accès administrateur requis.');
-      const title = $('photoAdminTitle').value.trim(); const imageUrl = safeHttpUrl($('photoAdminUrl').value.trim()); const prompt = $('photoAdminPrompt').value.trim();
-      if (!title || !imageUrl || !prompt) return photoStatus('Remplissez le titre, le lien image et le prompt avec une URL HTTP/HTTPS valide.');
-      const wasEditing = Boolean(editingPhotoId);
-      const button = $('photoAdminSubmitButton'); button.disabled = true;
-      try {
-        let result;
-        if (editingPhotoId) {
-          result = await supabaseClient.from('site_photos').update({ title, image_url:imageUrl, prompt }).eq('id', editingPhotoId);
-        } else {
-          result = await supabaseClient.from('site_photos').insert({ title, image_url:imageUrl, prompt, created_by:currentUser.id });
-        }
-        if (result.error) throw result.error;
-        await loadPhotos(); resetPhotoForm(); photoStatus(wasEditing ? 'Publication modifiée.' : 'Photo publiée avec succès.', true);
-      } catch (error) { console.error(error); photoStatus('Enregistrement impossible : ' + error.message); }
-      finally { button.disabled = false; }
+
+      showForm(link.dataset.showForm);
     });
-    async function renderAdminPhotos() {
-      const list = $('adminPhotosList'); list.replaceChildren();
-      if (!remotePhotos.length) { const empty = document.createElement('div'); empty.className = 'photo-admin-empty'; empty.textContent = 'Aucune publication Supabase. Les exemples intégrés ne sont pas modifiables ici.'; list.appendChild(empty); return; }
-      remotePhotos.forEach(photo => {
-        const card = document.createElement('article'); card.className = 'photo-admin-item';
-        const img = document.createElement('img'); img.src = photo.image_url; img.alt = photo.title; img.loading = 'lazy';
-        const title = document.createElement('h3'); title.textContent = photo.title;
-        const prompt = document.createElement('p'); prompt.textContent = photo.prompt;
-        const actions = document.createElement('div'); actions.className = 'item-actions';
-        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'edit-btn'; edit.textContent = 'Modifier';
-        edit.addEventListener('click', () => {
-          editingPhotoId = photo.id; $('photoAdminTitle').value = photo.title; $('photoAdminUrl').value = photo.image_url; $('photoAdminPrompt').value = photo.prompt;
-          $('photoAdminSubmitButton').textContent = 'Enregistrer les modifications'; $('photoAdminCancelButton').classList.remove('hidden'); previewPhoto(); $('photoAdminPanel').scrollIntoView({behavior:'smooth'}); photoStatus('Modification en cours.', true);
-        });
-        const del = document.createElement('button'); del.type = 'button'; del.className = 'delete-btn'; del.textContent = 'Supprimer';
-        del.addEventListener('click', async () => {
-          if (!window.confirm('Supprimer cette publication ?')) return;
-          const { error } = await supabaseClient.from('site_photos').delete().eq('id', photo.id);
-          if (error) { console.error(error); photoStatus('Suppression impossible : ' + error.message); return; }
-          await loadPhotos(); photoStatus('Publication supprimée.', true);
-        });
-        actions.append(edit, del); card.append(img, title, prompt, actions); list.appendChild(card);
-      });
-    }
+  });
 
-    // Gestion des comptes par les politiques RLS et le rôle admin défini côté base.
-    async function renderAdminDashboard() {
-      if (!currentProfile || currentProfile.role !== 'super_admin') return;
-      try {
-        // Les photos restent gérées par Supabase avec les politiques RLS de site_photos.
-        await loadPhotos();
+document.querySelectorAll('.toggle-password')
+  .forEach(icon => {
 
-        const [statsResult, usersResult] = await Promise.all([
-          callAdminApi('stats'),
-          callAdminApi('list_users', { page: 1, perPage: 100 })
-        ]);
+    icon.addEventListener('click', () => {
+      const input = $(icon.dataset.target);
 
-        const stats = statsResult.statistics || statsResult.stats || {};
-        const apiUsers = getApiUsers(usersResult).map(normalizeApiUser);
-        const ordinaryUsers = apiUsers.filter(user =>
-          user.role !== 'super_admin' && user.role !== 'admin'
-        );
+      if (!input) return;
 
-        $('totalUsers').textContent = readStat(
-          stats, ['total', 'totalUsers', 'total_users'], apiUsers.length
-        );
-        $('activeUsers').textContent = readStat(
-          stats, ['active', 'actif', 'activeUsers', 'active_users'],
-          ordinaryUsers.filter(user => user.is_active !== false).length
-        );
-        $('disabledUsers').textContent = readStat(
-          stats, ['inactive', 'inactif', 'disabled', 'disabledUsers', 'inactive_users'],
-          ordinaryUsers.filter(user => user.is_active === false).length
-        );
+      input.type =
+        input.type === 'password'
+          ? 'text'
+          : 'password';
 
-        renderUsersTable(ordinaryUsers);
-        renderDeletedUsersTable([]);
-        renderAdminPhotos();
-        setStatus('Administration connectée à admin-api. Statistiques et utilisateurs chargés.', false);
-      } catch (error) {
-        console.error('Erreur admin-api :', error);
-        setStatus('Erreur de chargement admin-api : ' + (error.message || 'erreur inconnue'), true);
-        $('usersTableBody').replaceChildren();
-        const row = document.createElement('tr');
-        const cell = addCell(row, 'Impossible de charger les utilisateurs : ' + (error.message || 'erreur inconnue'));
-        cell.colSpan = 6;
-        cell.className = 'empty-message';
-        $('usersTableBody').appendChild(row);
-      }
-    }
+      icon.textContent =
+        input.type === 'password'
+          ? '👁️'
+          : '🙈';
+    });
+  });
 
-    function addCell(row, value) { const cell = document.createElement('td'); cell.textContent = value == null ? '' : String(value); row.appendChild(cell); return cell; }
-    function renderUsersTable(users) {
-      const body = $('usersTableBody');
-      body.replaceChildren();
-      if (!users.length) {
-        const row = document.createElement('tr');
-        const cell = addCell(row, 'Aucun utilisateur à afficher.');
-        cell.colSpan = 6;
-        cell.className = 'empty-message';
-        body.appendChild(row);
-        return;
-      }
+/* =====================================================
+   7. INSCRIPTION
+===================================================== */
 
-      users.forEach(profile => {
-        const row = document.createElement('tr');
-        addCell(row, profile.full_name || 'Sans nom');
-        addCell(row, profile.email);
-        addCell(row, formatDate(profile.created_at));
-        addCell(row, profile.login_count || 0);
+$('registerForm').addEventListener(
+  'submit',
+  async event => {
 
-        const statusCell = document.createElement('td');
-        const status = document.createElement('span');
-        status.className = profile.is_active === false ? 'status-disabled' : 'status-active';
-        status.textContent = profile.is_active === false ? 'Désactivé' : 'Actif';
-        statusCell.appendChild(status);
-        row.appendChild(statusCell);
+    event.preventDefault();
 
-        const actions = document.createElement('td');
-        const toggle = document.createElement('button');
-        toggle.type = 'button';
-        toggle.className = 'action-btn ' + (profile.is_active === false ? 'activate-btn' : 'deactivate-btn');
-        toggle.textContent = profile.is_active === false ? 'Activer' : 'Désactiver';
-        toggle.addEventListener('click', async () => {
-          toggle.disabled = true;
-          try {
-            await callAdminApi('set_active', {
-              userId: profile.id,
-              active: profile.is_active === false
-            });
-            await renderAdminDashboard();
-          } catch (error) {
-            alert('Modification impossible : ' + (error.message || 'erreur inconnue'));
-            toggle.disabled = false;
-          }
-        });
+    if (!ensureSupabase()) return;
 
-        // L'API actuelle réalise une suppression Auth définitive, pas une mise en corbeille.
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.className = 'action-btn delete-user-btn';
-        remove.textContent = 'Supprimer définitivement';
-        remove.addEventListener('click', async () => {
-          const confirmed = window.confirm(
-            'Attention : cette action supprime définitivement ce compte utilisateur de Supabase Auth. Elle ne le place pas dans une corbeille. Continuer ?'
-          );
-          if (!confirmed) return;
-          remove.disabled = true;
-          try {
-            await callAdminApi('supprimer_utilisateur', { userId: profile.id });
-            await renderAdminDashboard();
-          } catch (error) {
-            alert('Suppression impossible : ' + (error.message || 'erreur inconnue'));
-            remove.disabled = false;
-          }
-        });
+    const name =
+      $('registerName').value.trim();
 
-        actions.append(toggle, remove);
-        row.appendChild(actions);
-        body.appendChild(row);
-      });
-    }
-    function renderDeletedUsersTable(users) {
-      const body = $('deletedUsersTableBody');
-      body.replaceChildren();
-      // admin-api ne propose actuellement ni action de corbeille ni action de restauration.
-      const row = document.createElement('tr');
-      const cell = addCell(
-        row,
-        'La fonction admin-api actuelle ne gère pas de corbeille. Utilisez Activer/Désactiver ou la suppression définitive avec confirmation.'
+    const email =
+      $('registerEmail').value.trim().toLowerCase();
+
+    const password =
+      $('registerPassword').value;
+
+    if (password !== $('confirmPassword').value) {
+      return showMessage(
+        'Les mots de passe ne correspondent pas.',
+        'error'
       );
-      cell.colSpan = 5;
-      cell.className = 'empty-message';
-      body.appendChild(row);
     }
 
-    function showPage(pageName) {
-      document.querySelectorAll('.page-section').forEach(section => section.classList.toggle('active', section.id === pageName + 'Section'));
-      document.querySelectorAll('.nav-link[data-page]').forEach(link => link.classList.toggle('active', link.dataset.page === pageName));
-      window.scrollTo({top:0,behavior:'smooth'});
-    }
-    document.querySelectorAll('.nav-link[data-page]').forEach(link => link.addEventListener('click', () => showPage(link.dataset.page)));
-    $('visitWebsiteButton').addEventListener('click', async () => { $('adminDashboardPage').classList.remove('active'); $('dashboardPage').classList.add('active'); showPage('home'); await loadPhotos(); });
-
-    // Gestion du retour depuis le lien de récupération de mot de passe.
-    function detectRecoveryLink() {
-      const params = new URLSearchParams(window.location.search);
-      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-      return params.get('type') === 'recovery' || hash.get('type') === 'recovery' || hash.has('access_token');
+    if (password.length < 8) {
+      return showMessage(
+        'Le mot de passe doit contenir au moins 8 caractères.',
+        'error'
+      );
     }
 
-    async function startApp() {
-      if (!CONFIGURED) {
-        setStatus('Supabase non configuré. Remplacez les deux valeurs de configuration dans le JavaScript.', true);
-        renderAlbum();
+    const button = event.submitter;
+
+    if (button) button.disabled = true;
+
+    try {
+
+      const { data, error } =
+        await supabaseClient.auth.signUp({
+
+          email,
+          password,
+
+          options: {
+            data: {
+              full_name: name
+            },
+
+            emailRedirectTo:
+              'https://dakodopascal.github.io/DIGI-TECHNO-PRO/'
+          }
+        });
+
+      if (error) throw error;
+
+      $('registerForm').reset();
+
+      if (data.session) {
+
+        showMessage(
+          'Inscription réussie. Votre espace va s’ouvrir.',
+          'success'
+        );
+
+        await openUserSession(data.session);
+
+      } else {
+
+        showForm('loginForm');
+
+        showMessage(
+          'Inscription enregistrée. Consultez votre email pour confirmer votre adresse.',
+          'success'
+        );
+      }
+
+    } catch (error) {
+
+      console.error(error);
+
+      showMessage(
+        error.message || 'Erreur pendant la création du compte.',
+        'error'
+      );
+
+    } finally {
+
+      if (button) button.disabled = false;
+    }
+  }
+);
+
+/* =====================================================
+   8. CONNEXION
+===================================================== */
+
+$('loginForm').addEventListener(
+  'submit',
+  async event => {
+
+    event.preventDefault();
+
+    if (!ensureSupabase()) return;
+
+    const email =
+      $('loginEmail').value.trim().toLowerCase();
+
+    const password =
+      $('loginPassword').value;
+
+    const button = event.submitter;
+
+    if (button) button.disabled = true;
+
+    try {
+
+      const { data, error } =
+        await supabaseClient.auth.signInWithPassword({
+          email,
+          password
+        });
+
+      if (error) throw error;
+
+      $('loginForm').reset();
+
+      await openUserSession(data.session);
+
+    } catch (error) {
+
+      console.error(error);
+
+      showMessage(
+        error.message ||
+        'Connexion impossible. Vérifiez vos identifiants.',
+        'error'
+      );
+
+    } finally {
+
+      if (button) button.disabled = false;
+    }
+  }
+);
+
+/* =====================================================
+   9. MOT DE PASSE OUBLIÉ
+===================================================== */
+
+$('forgotForm').addEventListener(
+  'submit',
+  async event => {
+
+    event.preventDefault();
+
+    if (!ensureSupabase()) return;
+
+    const email =
+      $('forgotEmail').value.trim().toLowerCase();
+
+    try {
+
+      const redirectTo =
+        window.location.origin +
+        window.location.pathname;
+
+      const { error } =
+        await supabaseClient.auth.resetPasswordForEmail(
+          email,
+          { redirectTo }
+        );
+
+      if (error) throw error;
+
+      $('forgotForm').reset();
+
+      showMessage(
+        'Si cette adresse est enregistrée, un lien de réinitialisation vient d’être envoyé.',
+        'success'
+      );
+
+    } catch (error) {
+
+      console.error(error);
+
+      showMessage(
+        error.message ||
+        'Envoi du lien impossible.',
+        'error'
+      );
+    }
+  }
+);
+
+/* =====================================================
+   10. MODIFICATION DU MOT DE PASSE
+===================================================== */
+
+$('resetPasswordForm').addEventListener(
+  'submit',
+  async event => {
+
+    event.preventDefault();
+
+    if (!ensureSupabase()) return;
+
+    const password =
+      $('newPassword').value;
+
+    if (password.length < 8) {
+      return showMessage(
+        'Le mot de passe doit contenir au moins 8 caractères.',
+        'error'
+      );
+    }
+
+    if (password !== $('confirmNewPassword').value) {
+      return showMessage(
+        'Les mots de passe ne correspondent pas.',
+        'error'
+      );
+    }
+
+    try {
+
+      const { error } =
+        await supabaseClient.auth.updateUser({
+          password
+        });
+
+      if (error) throw error;
+
+      $('resetPasswordForm').reset();
+
+      await supabaseClient.auth.signOut();
+
+      showForm('loginForm');
+
+      showMessage(
+        'Mot de passe modifié. Vous pouvez vous reconnecter.',
+        'success'
+      );
+
+    } catch (error) {
+
+      console.error(error);
+
+      showMessage(
+        error.message ||
+        'Modification du mot de passe impossible.',
+        'error'
+      );
+    }
+  }
+);
+
+/* =====================================================
+   11. OUVERTURE DE SESSION UTILISATEUR
+===================================================== */
+
+async function openUserSession(session) {
+
+  if (!session || !session.user) return;
+
+  currentUser = session.user;
+
+  try {
+
+    const { data: profile, error } =
+      await supabaseClient
+        .from('profiles')
+        .select('id,email,role,is_active')
+        .eq('id', currentUser.id)
+        .single();
+
+    if (error) throw error;
+
+    if (!profile || profile.is_active !== true) {
+
+      await supabaseClient.auth.signOut();
+
+      currentUser = null;
+      currentProfile = null;
+
+      $('authContainer').classList.remove('hidden');
+
+      showForm('loginForm');
+
+      showMessage(
+        'Ce compte est désactivé ou son profil est indisponible. Contactez l’administrateur.',
+        'error'
+      );
+
+      return;
+    }
+
+    currentProfile = profile;
+
+    $('authContainer').classList.add('hidden');
+
+    if (profile.role === 'super_admin') {
+
+      $('adminDashboardPage').classList.add('active');
+
+      $('dashboardPage').classList.remove('active');
+
+      const displayName =
+        currentUser.user_metadata?.full_name ||
+        profile.email ||
+        'Administrateur';
+
+      $('adminWelcome').textContent =
+        'Bienvenue, ' + displayName + '.';
+
+      await renderAdminDashboard();
+
+    } else {
+
+      $('adminDashboardPage').classList.remove('active');
+
+      $('dashboardPage').classList.add('active');
+
+      showPage('home');
+
+      await loadPhotos();
+    }
+
+    setStatus(
+      'Connecté à Supabase : authentification active.',
+      false
+    );
+
+  } catch (error) {
+
+    console.error(error);
+
+    await supabaseClient.auth.signOut();
+
+    currentUser = null;
+    currentProfile = null;
+
+    $('authContainer').classList.remove('hidden');
+
+    $('dashboardPage').classList.remove('active');
+
+    $('adminDashboardPage').classList.remove('active');
+
+    showForm('loginForm');
+
+    showMessage(
+      'Impossible de charger votre profil : ' +
+      (error.message || 'erreur inconnue'),
+      'error'
+    );
+  }
+}
+
+/* =====================================================
+   12. DÉCONNEXION
+===================================================== */
+
+async function signOut() {
+
+  if (supabaseClient) {
+
+    const { error } =
+      await supabaseClient.auth.signOut();
+
+    if (error) console.error(error);
+  }
+
+  currentUser = null;
+  currentProfile = null;
+
+  $('dashboardPage').classList.remove('active');
+
+  $('adminDashboardPage').classList.remove('active');
+
+  $('authContainer').classList.remove('hidden');
+
+  showForm('loginForm');
+
+  showMessage(
+    'Vous êtes déconnecté.',
+    'success'
+  );
+}
+
+$('userLogoutButton').addEventListener('click', signOut);
+
+$('adminLogoutButton').addEventListener('click', signOut);
+
+/* =====================================================
+   13. CHARGEMENT DES PHOTOS
+===================================================== */
+
+async function loadPhotos() {
+
+  if (!supabaseClient) return;
+
+  try {
+
+    const { data, error } =
+      await supabaseClient
+        .from('site_photos')
+        .select('id,title,image_url,prompt,created_at')
+        .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    remotePhotos = data || [];
+
+    renderAlbum();
+
+    if (
+      currentProfile &&
+      currentProfile.role === 'super_admin'
+    ) {
+      renderAdminPhotos();
+    }
+
+  } catch (error) {
+
+    console.error(error);
+
+    setStatus(
+      'Erreur de lecture des publications : ' + error.message,
+      true
+    );
+
+    renderAlbum();
+  }
+}
+
+/* =====================================================
+   14. CRÉATION DES CARTES PHOTOS
+===================================================== */
+
+function createPhotoCard(photo) {
+
+  const card = document.createElement('article');
+
+  card.className = 'photo-card';
+
+  const title = document.createElement('h3');
+
+  title.className = 'photo-title';
+
+  title.textContent =
+    photo.title || photo.titre || 'Photo';
+
+  const frame = document.createElement('div');
+
+  frame.className = 'photo-frame';
+
+  const img = document.createElement('img');
+
+  img.src = photo.image_url || photo.url;
+
+  img.alt = title.textContent;
+
+  img.loading = 'lazy';
+
+  img.referrerPolicy = 'no-referrer';
+
+  img.onerror = () => {
+    img.alt = 'Image indisponible : ' + title.textContent;
+    img.style.objectFit = 'contain';
+  };
+
+  frame.appendChild(img);
+
+  const actions = document.createElement('div');
+
+  actions.className = 'actions';
+
+  const zoom = document.createElement('button');
+
+  zoom.type = 'button';
+
+  zoom.className = 'zoom-btn';
+
+  zoom.textContent = 'Zoomer';
+
+  zoom.addEventListener('click', () => {
+    enlargePhoto(img.src);
+  });
+
+  const promptButton = document.createElement('button');
+
+  promptButton.type = 'button';
+
+  promptButton.className = 'prompt-btn';
+
+  promptButton.textContent = 'Afficher le prompt';
+
+  const promptBox = document.createElement('div');
+
+  promptBox.className = 'prompt-box';
+
+  promptBox.hidden = true;
+
+  const promptTitle = document.createElement('div');
+
+  promptTitle.className = 'prompt-title';
+
+  promptTitle.textContent = 'Prompt de cette photo :';
+
+  const promptText = document.createElement('p');
+
+  promptText.textContent =
+    photo.prompt || 'Aucun prompt disponible.';
+
+  promptBox.append(promptTitle, promptText);
+
+  promptButton.addEventListener('click', () => {
+
+    promptBox.hidden = !promptBox.hidden;
+
+    promptButton.textContent =
+      promptBox.hidden
+        ? 'Afficher le prompt'
+        : 'Masquer le prompt';
+  });
+
+  actions.append(zoom, promptButton);
+
+  card.append(title, frame, actions, promptBox);
+
+  return card;
+}
+
+/* =====================================================
+   15. AFFICHAGE DE L'ALBUM
+===================================================== */
+
+function renderAlbum() {
+
+  const album = $('album');
+
+  album.replaceChildren();
+
+  const allPhotos = [
+    ...DEFAULT_PHOTOS,
+
+    ...remotePhotos.map(p => ({
+      id: p.id,
+      title: p.title,
+      image_url: p.image_url,
+      prompt: p.prompt
+    }))
+  ];
+
+  allPhotos.forEach(photo => {
+    album.appendChild(createPhotoCard(photo));
+  });
+}
+
+/* =====================================================
+   16. ZOOM ET RÉDUCTION DES PHOTOS
+===================================================== */
+
+function enlargePhoto(url) {
+
+  const safeUrl = safeHttpUrl(url);
+
+  if (!safeUrl) return;
+
+  $('zoomImage').src = safeUrl;
+
+  $('zoomOverlay').classList.add('active');
+
+  document.body.style.overflow = 'hidden';
+
+  $('reducePhotoButton').focus();
+}
+
+function reducePhoto() {
+
+  $('zoomOverlay').classList.remove('active');
+
+  $('zoomImage').src = '';
+
+  document.body.style.overflow = '';
+}
+
+$('reducePhotoButton').addEventListener(
+  'click',
+  reducePhoto
+);
+
+$('zoomOverlay').addEventListener(
+  'click',
+  event => {
+    if (event.target === $('zoomOverlay')) {
+      reducePhoto();
+    }
+  }
+);
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') reducePhoto();
+});
+
+/* =====================================================
+   17. ADMINISTRATION DES PHOTOS
+===================================================== */
+
+function photoStatus(text, ok = false) {
+
+  $('photoAdminStatus').textContent = text;
+
+  $('photoAdminStatus').style.color =
+    ok ? '#198754' : '#c62828';
+}
+
+function previewPhoto() {
+
+  const url = $('photoAdminUrl').value.trim();
+
+  const img = $('photoAdminPreview');
+
+  const msg = $('photoAdminPreviewMessage');
+
+  const safeUrl = safeHttpUrl(url);
+
+  if (!url || !safeUrl) {
+
+    img.removeAttribute('src');
+
+    img.style.display = 'none';
+
+    msg.textContent =
+      'Saisissez un lien HTTP ou HTTPS valide pour afficher l’aperçu.';
+
+    return;
+  }
+
+  img.onload = () => {
+
+    img.style.display = 'inline-block';
+
+    msg.textContent = 'Aperçu chargé.';
+  };
+
+  img.onerror = () => {
+
+    img.style.display = 'none';
+
+    msg.textContent =
+      'Image introuvable. Vérifiez le lien.';
+  };
+
+  img.src = safeUrl;
+}
+
+$('photoAdminUrl').addEventListener('input', previewPhoto);
+
+function resetPhotoForm() {
+
+  $('photoAdminForm').reset();
+
+  editingPhotoId = null;
+
+  $('photoAdminSubmitButton').textContent =
+    'Valider et publier';
+
+  $('photoAdminCancelButton').classList.add('hidden');
+
+  $('photoAdminPreview').removeAttribute('src');
+
+  $('photoAdminPreview').style.display = 'none';
+
+  $('photoAdminPreviewMessage').textContent =
+    'L’aperçu de la photo apparaîtra ici.';
+
+  photoStatus('', true);
+}
+
+$('photoAdminCancelButton').addEventListener(
+  'click',
+  resetPhotoForm
+);
+
+/* =====================================================
+   18. PUBLICATION ET MODIFICATION DES PHOTOS
+===================================================== */
+
+$('photoAdminForm').addEventListener(
+  'submit',
+  async event => {
+
+    event.preventDefault();
+
+    if (
+      !currentProfile ||
+      currentProfile.role !== 'super_admin'
+    ) {
+      return photoStatus('Accès administrateur requis.');
+    }
+
+    const title =
+      $('photoAdminTitle').value.trim();
+
+    const imageUrl =
+      safeHttpUrl($('photoAdminUrl').value.trim());
+
+    const prompt =
+      $('photoAdminPrompt').value.trim();
+
+    if (!title || !imageUrl || !prompt) {
+
+      return photoStatus(
+        'Remplissez le titre, le lien image et le prompt avec une URL HTTP/HTTPS valide.'
+      );
+    }
+
+    const wasEditing = Boolean(editingPhotoId);
+
+    const button = $('photoAdminSubmitButton');
+
+    button.disabled = true;
+
+    try {
+
+      let result;
+
+      if (editingPhotoId) {
+
+        result = await supabaseClient
+          .from('site_photos')
+          .update({
+            title,
+            image_url: imageUrl,
+            prompt
+          })
+          .eq('id', editingPhotoId);
+
+      } else {
+
+        result = await supabaseClient
+          .from('site_photos')
+          .insert({
+            title,
+            image_url: imageUrl,
+            prompt,
+            created_by: currentUser.id
+          });
+      }
+
+      if (result.error) throw result.error;
+
+      await loadPhotos();
+
+      resetPhotoForm();
+
+      photoStatus(
+        wasEditing
+          ? 'Publication modifiée.'
+          : 'Photo publiée avec succès.',
+        true
+      );
+
+    } catch (error) {
+
+      console.error(error);
+
+      photoStatus(
+        'Enregistrement impossible : ' + error.message
+      );
+
+    } finally {
+
+      button.disabled = false;
+    }
+  }
+);
+
+/* =====================================================
+   19. LISTE DES PHOTOS ADMINISTRATEUR
+===================================================== */
+
+async function renderAdminPhotos() {
+
+  const list = $('adminPhotosList');
+
+  list.replaceChildren();
+
+  if (!remotePhotos.length) {
+
+    const empty = document.createElement('div');
+
+    empty.className = 'photo-admin-empty';
+
+    empty.textContent =
+      'Aucune publication Supabase. Les exemples intégrés ne sont pas modifiables ici.';
+
+    list.appendChild(empty);
+
+    return;
+  }
+
+  remotePhotos.forEach(photo => {
+
+    const card = document.createElement('article');
+
+    card.className = 'photo-admin-item';
+
+    const img = document.createElement('img');
+
+    img.src = photo.image_url;
+
+    img.alt = photo.title;
+
+    img.loading = 'lazy';
+
+    const title = document.createElement('h3');
+
+    title.textContent = photo.title;
+
+    const prompt = document.createElement('p');
+
+    prompt.textContent = photo.prompt;
+
+    const actions = document.createElement('div');
+
+    actions.className = 'item-actions';
+
+    // Modifier
+    const edit = document.createElement('button');
+
+    edit.type = 'button';
+
+    edit.className = 'edit-btn';
+
+    edit.textContent = 'Modifier';
+
+    edit.addEventListener('click', () => {
+
+      editingPhotoId = photo.id;
+
+      $('photoAdminTitle').value = photo.title;
+
+      $('photoAdminUrl').value = photo.image_url;
+
+      $('photoAdminPrompt').value = photo.prompt;
+
+      $('photoAdminSubmitButton').textContent =
+        'Enregistrer les modifications';
+
+      $('photoAdminCancelButton').classList.remove('hidden');
+
+      previewPhoto();
+
+      $('photoAdminPanel').scrollIntoView({
+        behavior: 'smooth'
+      });
+
+      photoStatus('Modification en cours.', true);
+    });
+
+    // Supprimer
+    const del = document.createElement('button');
+
+    del.type = 'button';
+
+    del.className = 'delete-btn';
+
+    del.textContent = 'Supprimer';
+
+    del.addEventListener('click', async () => {
+
+      if (!window.confirm('Supprimer cette publication ?')) {
         return;
       }
-      setStatus('Connexion à Supabase…');
-      const isRecovery = detectRecoveryLink();
-      if (isRecovery) { showForm('resetPasswordForm'); showMessage('Choisissez votre nouveau mot de passe.', 'success'); }
-      supabaseClient.auth.onAuthStateChange((event, session) => {
-        if (event === 'PASSWORD_RECOVERY') { showForm('resetPasswordForm'); showMessage('Choisissez votre nouveau mot de passe.', 'success'); return; }
-        if (event === 'SIGNED_OUT') { currentUser=null; currentProfile=null; $('authContainer').classList.remove('hidden'); $('dashboardPage').classList.remove('active'); $('adminDashboardPage').classList.remove('active'); }
-      });
-      const { data, error } = await supabaseClient.auth.getSession();
-      if (error) { console.error(error); setStatus('Erreur Supabase : ' + error.message, true); return; }
-      if (isRecovery) { setStatus('Lien de récupération reconnu. Choisissez votre nouveau mot de passe.'); return; }
-      if (data.session) await openUserSession(data.session);
-      else setStatus('Supabase est prêt. Connectez-vous ou créez un compte.');
-      renderAlbum();
+
+      const { error } = await supabaseClient
+        .from('site_photos')
+        .delete()
+        .eq('id', photo.id);
+
+      if (error) {
+
+        console.error(error);
+
+        photoStatus(
+          'Suppression impossible : ' + error.message
+        );
+
+        return;
+      }
+
+      await loadPhotos();
+
+      photoStatus('Publication supprimée.', true);
+    });
+
+    actions.append(edit, del);
+
+    card.append(img, title, prompt, actions);
+
+    list.appendChild(card);
+  });
+}
+
+/* =====================================================
+   20. TABLEAU DE BORD ADMINISTRATEUR
+===================================================== */
+
+async function renderAdminDashboard() {
+
+  if (
+    !currentProfile ||
+    currentProfile.role !== 'super_admin'
+  ) {
+    return;
+  }
+
+  try {
+
+    await loadPhotos();
+
+    // Appels parallèles à admin-api
+    const [statsResult, usersResult] =
+      await Promise.all([
+
+        callAdminApi('stats'),
+
+        callAdminApi('list_users', {
+          page: 1,
+          perPage: 100
+        })
+
+      ]);
+
+    const stats =
+      statsResult.statistics ||
+      statsResult.stats ||
+      {};
+
+    const apiUsers =
+      getApiUsers(usersResult).map(normalizeApiUser);
+
+    const ordinaryUsers = apiUsers.filter(user =>
+      user.role !== 'super_admin' &&
+      user.role !== 'admin'
+    );
+
+    // Statistiques
+    $('totalUsers').textContent = readStat(
+      stats,
+      ['total', 'totalUsers', 'total_users'],
+      apiUsers.length
+    );
+
+    $('activeUsers').textContent = readStat(
+      stats,
+      ['active', 'actif', 'activeUsers', 'active_users'],
+      ordinaryUsers.filter(
+        user => user.is_active !== false
+      ).length
+    );
+
+    $('disabledUsers').textContent = readStat(
+      stats,
+      ['inactive', 'inactif', 'disabled',
+       'disabledUsers', 'inactive_users'],
+      ordinaryUsers.filter(
+        user => user.is_active === false
+      ).length
+    );
+
+    // Tableaux
+    renderUsersTable(ordinaryUsers);
+
+    renderDeletedUsersTable([]);
+
+    renderAdminPhotos();
+
+    setStatus(
+      'Administration connectée à admin-api. Statistiques et utilisateurs chargés.',
+      false
+    );
+
+  } catch (error) {
+
+    console.error('Erreur admin-api :', error);
+
+    setStatus(
+      'Erreur de chargement admin-api : ' +
+      (error.message || 'erreur inconnue'),
+      true
+    );
+
+    $('usersTableBody').replaceChildren();
+
+    const row = document.createElement('tr');
+
+    const cell = addCell(
+      row,
+      'Impossible de charger les utilisateurs : ' +
+      (error.message || 'erreur inconnue')
+    );
+
+    cell.colSpan = 6;
+
+    cell.className = 'empty-message';
+
+    $('usersTableBody').appendChild(row);
+  }
+}
+
+/* =====================================================
+   21. CONSTRUCTION DES CELLULES
+===================================================== */
+
+function addCell(row, value) {
+
+  const cell = document.createElement('td');
+
+  cell.textContent =
+    value == null ? '' : String(value);
+
+  row.appendChild(cell);
+
+  return cell;
+}
+
+/* =====================================================
+   22. AFFICHAGE DES UTILISATEURS
+===================================================== */
+
+function renderUsersTable(users) {
+
+  const body = $('usersTableBody');
+
+  body.replaceChildren();
+
+  if (!users.length) {
+
+    const row = document.createElement('tr');
+
+    const cell = addCell(
+      row,
+      'Aucun utilisateur à afficher.'
+    );
+
+    cell.colSpan = 6;
+
+    cell.className = 'empty-message';
+
+    body.appendChild(row);
+
+    return;
+  }
+
+  users.forEach(profile => {
+
+    const row = document.createElement('tr');
+
+    addCell(row, profile.full_name || 'Sans nom');
+
+    addCell(row, profile.email);
+
+    addCell(row, formatDate(profile.created_at));
+
+    addCell(row, profile.login_count || 0);
+
+    // Statut du compte
+    const statusCell = document.createElement('td');
+
+    const status = document.createElement('span');
+
+    status.className =
+      profile.is_active === false
+        ? 'status-disabled'
+        : 'status-active';
+
+    status.textContent =
+      profile.is_active === false
+        ? 'Désactivé'
+        : 'Actif';
+
+    statusCell.appendChild(status);
+
+    row.appendChild(statusCell);
+
+    // Actions
+    const actions = document.createElement('td');
+
+    // Activation / désactivation
+    const toggle = document.createElement('button');
+
+    toggle.type = 'button';
+
+    toggle.className =
+      'action-btn ' +
+      (
+        profile.is_active === false
+          ? 'activate-btn'
+          : 'deactivate-btn'
+      );
+
+    toggle.textContent =
+      profile.is_active === false
+        ? 'Activer'
+        : 'Désactiver';
+
+    toggle.addEventListener('click', async () => {
+
+      toggle.disabled = true;
+
+      try {
+
+        await callAdminApi('set_active', {
+
+          userId: profile.id,
+
+          active: profile.is_active === false
+
+        });
+
+        await renderAdminDashboard();
+
+      } catch (error) {
+
+        alert(
+          'Modification impossible : ' +
+          (error.message || 'erreur inconnue')
+        );
+
+        toggle.disabled = false;
+      }
+    });
+
+    // Suppression définitive
+    const remove = document.createElement('button');
+
+    remove.type = 'button';
+
+    remove.className = 'action-btn delete-user-btn';
+
+    remove.textContent = 'Supprimer définitivement';
+
+    remove.addEventListener('click', async () => {
+
+      const confirmed = window.confirm(
+        'Attention : cette action supprime définitivement ce compte utilisateur de Supabase Auth. Elle ne le place pas dans une corbeille. Continuer ?'
+      );
+
+      if (!confirmed) return;
+
+      remove.disabled = true;
+
+      try {
+
+        // CORRECTION : le nom attendu est delete_user
+        await callAdminApi('delete_user', {
+          userId: profile.id
+        });
+
+        await renderAdminDashboard();
+
+      } catch (error) {
+
+        alert(
+          'Suppression impossible : ' +
+          (error.message || 'erreur inconnue')
+        );
+
+        remove.disabled = false;
+      }
+    });
+
+    actions.append(toggle, remove);
+
+    row.appendChild(actions);
+
+    body.appendChild(row);
+  });
+}
+
+/* =====================================================
+   23. COMPTES SUPPRIMÉS
+===================================================== */
+
+function renderDeletedUsersTable(users) {
+
+  const body = $('deletedUsersTableBody');
+
+  body.replaceChildren();
+
+  const row = document.createElement('tr');
+
+  const cell = addCell(
+    row,
+    'La fonction admin-api actuelle ne gère pas de corbeille. Utilisez Activer/Désactiver ou la suppression définitive avec confirmation.'
+  );
+
+  cell.colSpan = 5;
+
+  cell.className = 'empty-message';
+
+  body.appendChild(row);
+}
+
+/* =====================================================
+   24. NAVIGATION DU SITE
+===================================================== */
+
+function showPage(pageName) {
+
+  document.querySelectorAll('.page-section')
+    .forEach(section => {
+
+      section.classList.toggle(
+        'active',
+        section.id === pageName + 'Section'
+      );
+    });
+
+  document.querySelectorAll('.nav-link[data-page]')
+    .forEach(link => {
+
+      link.classList.toggle(
+        'active',
+        link.dataset.page === pageName
+      );
+    });
+
+  window.scrollTo({
+    top: 0,
+    behavior: 'smooth'
+  });
+}
+
+document.querySelectorAll('.nav-link[data-page]')
+  .forEach(link => {
+
+    link.addEventListener('click', () => {
+      showPage(link.dataset.page);
+    });
+  });
+
+$('visitWebsiteButton').addEventListener(
+  'click',
+  async () => {
+
+    $('adminDashboardPage').classList.remove('active');
+
+    $('dashboardPage').classList.add('active');
+
+    showPage('home');
+
+    await loadPhotos();
+  }
+);
+
+/* =====================================================
+   25. DÉTECTION DU LIEN DE RÉCUPÉRATION
+===================================================== */
+
+function detectRecoveryLink() {
+
+  const params =
+    new URLSearchParams(window.location.search);
+
+  const hash =
+    new URLSearchParams(
+      window.location.hash.replace(/^#/, '')
+    );
+
+  return (
+    params.get('type') === 'recovery' ||
+    hash.get('type') === 'recovery' ||
+    hash.has('access_token')
+  );
+}
+
+/* =====================================================
+   26. DÉMARRAGE DE L'APPLICATION
+===================================================== */
+
+async function startApp() {
+
+  if (!CONFIGURED) {
+
+    setStatus(
+      'Supabase non configuré. Vérifiez les deux valeurs de configuration.',
+      true
+    );
+
+    renderAlbum();
+
+    return;
+  }
+
+  setStatus('Connexion à Supabase…');
+
+  const isRecovery = detectRecoveryLink();
+
+  if (isRecovery) {
+
+    showForm('resetPasswordForm');
+
+    showMessage(
+      'Choisissez votre nouveau mot de passe.',
+      'success'
+    );
+  }
+
+  supabaseClient.auth.onAuthStateChange(
+    (event, session) => {
+
+      if (event === 'PASSWORD_RECOVERY') {
+
+        showForm('resetPasswordForm');
+
+        showMessage(
+          'Choisissez votre nouveau mot de passe.',
+          'success'
+        );
+
+        return;
+      }
+
+      if (event === 'SIGNED_OUT') {
+
+        currentUser = null;
+
+        currentProfile = null;
+
+        $('authContainer').classList.remove('hidden');
+
+        $('dashboardPage').classList.remove('active');
+
+        $('adminDashboardPage').classList.remove('active');
+      }
     }
-    startApp();
-  </script>
+  );
+
+  const { data, error } =
+    await supabaseClient.auth.getSession();
+
+  if (error) {
+
+    console.error(error);
+
+    setStatus(
+      'Erreur Supabase : ' + error.message,
+      true
+    );
+
+    return;
+  }
+
+  if (isRecovery) {
+
+    setStatus(
+      'Lien de récupération reconnu. Choisissez votre nouveau mot de passe.'
+    );
+
+    return;
+  }
+
+  if (data.session) {
+
+    await openUserSession(data.session);
+
+  } else {
+
+    setStatus(
+      'Supabase est prêt. Connectez-vous ou créez un compte.'
+    );
+  }
+
+  renderAlbum();
+}
+
+// Lancement de l'application
+startApp();
+
+</script>
 </body>
 </html>
