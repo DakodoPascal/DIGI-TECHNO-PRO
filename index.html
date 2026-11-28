@@ -318,7 +318,8 @@
       if (button) button.disabled = true;
       try {
         const { data, error } = await supabaseClient.auth.signUp({
-          email, password, options: { data: { full_name: name }, emailRedirectTo: window.location.href.split('#')[0] }
+          email, password, options: { data: { full_name: name },
+           emailRedirectTo: "https://dakodopascal.github.io/DIGI-TECHNO-PRO/" }
         });
         if (error) throw error;
         $('registerForm').reset();
