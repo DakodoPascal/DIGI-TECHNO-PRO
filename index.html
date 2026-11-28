@@ -136,15 +136,13 @@
           <div class="photo-admin-field"><label for="photoAdminUrl">Lien URL de la photo</label><input type="url" id="photoAdminUrl" placeholder="https://exemple.com/ma-photo.jpg" required></div>
           <div class="photo-admin-field"><label for="photoAdminPrompt">Prompt de la photo</label><textarea id="photoAdminPrompt" placeholder="Écrivez ici le prompt complet…" required></textarea></div>
           <div class="preview-wrap"><img id="photoAdminPreview" src="" alt="Aperçu de la photo"><p id="photoAdminPreviewMessage">L'aperçu de la photo apparaîtra ici.</p></div>
-
-           
           <div class="admin-buttons"><button type="submit" class="save-btn" id="photoAdminSubmitButton">Valider et publier</button><button type="button" class="cancel-btn hidden" id="photoAdminCancelButton">Annuler la modification</button></div>
           <p id="photoAdminStatus" aria-live="polite"></p>
         </form>
         <hr style="margin:25px 0"><h2>Photos publiées</h2><div id="adminPhotosList" class="photo-admin-list"></div>
       </section>
       <section class="admin-panel"><h2>Gestion des utilisateurs inscrits</h2><div class="table-wrap"><table class="user-table"><thead><tr><th>Nom</th><th>Email</th><th>Date d'inscription</th><th>Connexions</th><th>Statut</th><th>Actions</th></tr></thead><tbody id="usersTableBody"></tbody></table></div></section>
-      <section class="admin-panel"><h2>Corbeille - Comptes supprimés</h2><p>Les comptes déplacés dans la corbeille peuvent être restaurés.</p><div class="table-wrap"><table class="user-table"><thead><tr><th>Nom</th><th>Email</th><th>Date d'inscription</th><th>Connexions</th><th>Actions</th></tr></thead><tbody id="deletedUsersTableBody"></tbody></table></div></section>
+      <section class="admin-panel"><h2>Informations sur les comptes supprimés</h2><p>La fonction admin-api actuelle ne prévoit pas de restauration des comptes supprimés.</p><div class="table-wrap"><table class="user-table"><thead><tr><th>Nom</th><th>Email</th><th>Date d'inscription</th><th>Connexions</th><th>Actions</th></tr></thead><tbody id="deletedUsersTableBody"></tbody></table></div></section>
       <section class="admin-panel"><h2>Administration du site</h2><p>Vous êtes connecté en tant qu'administrateur.</p><button class="visit-btn" type="button" id="visitWebsiteButton">Visiter le site</button></section>
     </main>
   </div>
@@ -153,19 +151,22 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     'use strict';
-
     // Remplacez ces deux valeurs par Project URL et Publishable key dans Supabase.
     // La clé Publishable/anon peut être utilisée dans le navigateur avec des politiques RLS correctes.
     // NE JAMAIS placer ici une clé secret ou service_role.
-    const SUPABASE_URL = 'https://VOTRE-PROJET.supabase.co';
-    const SUPABASE_PUBLISHABLE_KEY = 'VOTRE_CLE_PUBLISHABLE';
+    const SUPABASE_URL = 'https://lpqjhhvspalimzahehjb.supabase.co';
+    const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_XoTNhLqI8y5ObjZfUtjDeA__cbhg5Ub';
 
-    const CONFIGURED = !SUPABASE_URL.includes('VOTRE-PROJET') &&
-      !SUPABASE_PUBLISHABLE_KEY.includes('VOTRE_CLE') &&
+    const CONFIGURED = /^https:\/\/.+\.supabase\.co$/.test(SUPABASE_URL) &&
+      SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_') &&
       typeof window.supabase !== 'undefined';
     const supabaseClient = CONFIGURED
       ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
       : null;
+
+    // Toutes les opérations sensibles de gestion des comptes passent par cette Edge Function.
+    // La clé service_role n'est jamais utilisée ni stockée dans ce fichier.
+    const ADMIN_API_URL = `${SUPABASE_URL}/functions/v1/admin-api`;
 
     const $ = (id) => document.getElementById(id);
     let currentUser = null;
@@ -197,7 +198,6 @@
       {titre:'Photo smartphone',url:'https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?auto=format&fit=crop&w=1000&q=80',prompt:'Une photographie publicitaire moderne mettant en scène un smartphone. Composition créative, détails réalistes, éclairage de studio et qualité professionnelle.'},
       {titre:'Photo à la plage',url:'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80',prompt:'Une magnifique scène de plage tropicale avec une mer turquoise, du sable blanc et une lumière naturelle. Photographie haute définition, couleurs harmonieuses et rendu réaliste.'}
     ];
-
     function setStatus(text, isError = false) {
       $('supabase-status').textContent = text;
       $('supabase-status').style.color = isError ? '#b42318' : '#344054';
@@ -220,6 +220,66 @@
       }
       return true;
     }
+    // Appel authentifié à Supabase Edge Function admin-api.
+    // Le serveur vérifie lui-même le JWT, le rôle super_admin et l'état actif du compte.
+    async function callAdminApi(action, parameters = {}) {
+      if (!supabaseClient) throw new Error('Supabase n’est pas configuré.');
+      const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
+      if (sessionError) throw sessionError;
+      const accessToken = sessionData?.session?.access_token;
+      if (!accessToken) throw new Error('Session expirée. Reconnectez-vous.');
+
+      const response = await fetch(ADMIN_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+          'apikey': SUPABASE_PUBLISHABLE_KEY
+        },
+        body: JSON.stringify({ action, ...parameters })
+      });
+
+      const responseText = await response.text();
+      let result = {};
+      try { result = responseText ? JSON.parse(responseText) : {}; }
+      catch (_) { throw new Error('La fonction admin-api a retourné une réponse non JSON.'); }
+
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || result.message || `Erreur admin-api (${response.status}).`);
+      }
+      return result;
+    }
+
+    function getApiUsers(result) {
+      const candidates = [
+        result?.users,
+        result?.utilisateurs,
+        result?.data?.users,
+        result?.data?.utilisateurs,
+        result?.data
+      ];
+      return candidates.find(Array.isArray) || [];
+    }
+
+    function normalizeApiUser(user) {
+      return {
+        id: user.id,
+        email: user.email || '',
+        full_name: user.full_name || user.nom_complet || user.user_metadata?.full_name || user.email || 'Sans nom',
+        role: user.role || user.profil?.role || 'user',
+        is_active: user.is_active ?? user.est_actif ?? true,
+        login_count: user.login_count ?? user.nombre_connexions ?? 0,
+        created_at: user.created_at || user.createdAt || null
+      };
+    }
+
+    function readStat(stats, names, fallback) {
+      for (const name of names) {
+        if (stats && stats[name] !== undefined && stats[name] !== null) return Number(stats[name]) || 0;
+      }
+      return fallback;
+    }
+
     function safeHttpUrl(value) {
       try {
         const parsed = new URL(value);
@@ -244,7 +304,8 @@
         icon.textContent = input.type === 'password' ? '👁️' : '🙈';
       });
     });
-      // Inscription avec Supabase Auth. Le profil est créé automatiquement par le trigger SQL fourni.
+
+    // Inscription avec Supabase Auth. Le profil est créé automatiquement par le trigger SQL fourni.
     $('registerForm').addEventListener('submit', async event => {
       event.preventDefault();
       if (!ensureSupabase()) return;
@@ -319,31 +380,35 @@
         showMessage('Mot de passe modifié. Vous pouvez vous reconnecter.', 'success');
       } catch (error) { console.error(error); showMessage(error.message || 'Modification du mot de passe impossible.', 'error'); }
     });
-
     async function openUserSession(session) {
       if (!session || !session.user) return;
       currentUser = session.user;
       try {
+        // Ne sélectionner que les colonnes confirmées dans la table profiles.
         const { data: profile, error } = await supabaseClient.from('profiles')
-          .select('id,email,full_name,role,is_active,login_count,created_at,deleted_at')
+          .select('id,email,role,is_active')
           .eq('id', currentUser.id).single();
         if (error) throw error;
-        if (!profile || profile.is_active === false || profile.deleted_at) {
+
+        if (!profile || profile.is_active !== true) {
           await supabaseClient.auth.signOut();
-          currentUser = null; currentProfile = null;
+          currentUser = null;
+          currentProfile = null;
+          $('authContainer').classList.remove('hidden');
           showForm('loginForm');
-          showMessage('Ce compte est désactivé ou placé dans la corbeille. Contactez l’administrateur.', 'error');
+          showMessage('Ce compte est désactivé ou son profil est indisponible. Contactez l’administrateur.', 'error');
           return;
         }
+
         currentProfile = profile;
-        // Incrémente le compteur côté serveur sans exposer de droits administrateur.
-        const { error: countError } = await supabaseClient.rpc('increment_my_login_count');
-        if (countError) console.warn('Compteur de connexions non mis à jour :', countError.message);
+        // L'accès au tableau est une indication d'interface ; chaque opération privilégiée
+        // est aussi contrôlée côté serveur par admin-api.
         $('authContainer').classList.add('hidden');
-        if (profile.role === 'admin') {
+        if (profile.role === 'super_admin') {
           $('adminDashboardPage').classList.add('active');
           $('dashboardPage').classList.remove('active');
-          $('adminWelcome').textContent = 'Bienvenue, ' + (profile.full_name || profile.email || 'Administrateur') + '.';
+          const displayName = currentUser.user_metadata?.full_name || profile.email || 'Administrateur';
+          $('adminWelcome').textContent = 'Bienvenue, ' + displayName + '.';
           await renderAdminDashboard();
         } else {
           $('adminDashboardPage').classList.remove('active');
@@ -355,11 +420,17 @@
       } catch (error) {
         console.error(error);
         await supabaseClient.auth.signOut();
-        currentUser = null; currentProfile = null;
+        currentUser = null;
+        currentProfile = null;
         $('authContainer').classList.remove('hidden');
+        $('dashboardPage').classList.remove('active');
+        $('adminDashboardPage').classList.remove('active');
         showForm('loginForm');
-        showMessage('Profil introuvable. Vérifiez que le script SQL de configuration a été exécuté.', 'error');
-      }async function signOut() {
+        showMessage('Impossible de charger votre profil : ' + (error.message || 'erreur inconnue'), 'error');
+      }
+    }
+
+    async function signOut() {
       if (supabaseClient) {
         const { error } = await supabaseClient.auth.signOut();
         if (error) console.error(error);
@@ -383,7 +454,7 @@
         if (error) throw error;
         remotePhotos = data || [];
         renderAlbum();
-        if (currentProfile && currentProfile.role === 'admin') renderAdminPhotos();
+        if (currentProfile && currentProfile.role === 'super_admin') renderAdminPhotos();
       } catch (error) {
         console.error(error);
         setStatus('Erreur de lecture des publications : ' + error.message, true);
@@ -420,7 +491,6 @@
     $('reducePhotoButton').addEventListener('click', reducePhoto);
     $('zoomOverlay').addEventListener('click', event => { if (event.target === $('zoomOverlay')) reducePhoto(); });
     document.addEventListener('keydown', event => { if (event.key === 'Escape') reducePhoto(); });
-
     // Administration des photos : CRUD dans la table site_photos (pas dans localStorage).
     function photoStatus(text, ok = false) { $('photoAdminStatus').textContent = text; $('photoAdminStatus').style.color = ok ? '#198754' : '#c62828'; }
     function previewPhoto() {
@@ -440,7 +510,7 @@
     $('photoAdminCancelButton').addEventListener('click', resetPhotoForm);
     $('photoAdminForm').addEventListener('submit', async event => {
       event.preventDefault();
-      if (!currentProfile || currentProfile.role !== 'admin') return photoStatus('Accès administrateur requis.');
+      if (!currentProfile || currentProfile.role !== 'super_admin') return photoStatus('Accès administrateur requis.');
       const title = $('photoAdminTitle').value.trim(); const imageUrl = safeHttpUrl($('photoAdminUrl').value.trim()); const prompt = $('photoAdminPrompt').value.trim();
       if (!title || !imageUrl || !prompt) return photoStatus('Remplissez le titre, le lien image et le prompt avec une URL HTTP/HTTPS valide.');
       const wasEditing = Boolean(editingPhotoId);
@@ -460,7 +530,8 @@
     async function renderAdminPhotos() {
       const list = $('adminPhotosList'); list.replaceChildren();
       if (!remotePhotos.length) { const empty = document.createElement('div'); empty.className = 'photo-admin-empty'; empty.textContent = 'Aucune publication Supabase. Les exemples intégrés ne sont pas modifiables ici.'; list.appendChild(empty); return; }
-      remotePhotos.forEach(photo => {const card = document.createElement('article'); card.className = 'photo-admin-item';
+      remotePhotos.forEach(photo => {
+        const card = document.createElement('article'); card.className = 'photo-admin-item';
         const img = document.createElement('img'); img.src = photo.image_url; img.alt = photo.title; img.loading = 'lazy';
         const title = document.createElement('h3'); title.textContent = photo.title;
         const prompt = document.createElement('p'); prompt.textContent = photo.prompt;
@@ -483,43 +554,133 @@
 
     // Gestion des comptes par les politiques RLS et le rôle admin défini côté base.
     async function renderAdminDashboard() {
-      if (!currentProfile || currentProfile.role !== 'admin') return;
-      await loadPhotos();
-      const { data, error } = await supabaseClient.from('profiles')
-        .select('id,email,full_name,role,is_active,login_count,created_at,deleted_at').order('created_at', { ascending:false });
-      if (error) { console.error(error); setStatus('Impossible de charger les utilisateurs : ' + error.message, true); return; }
-      const profiles = data || [];
-      const users = profiles.filter(p => p.role !== 'admin' && !p.deleted_at);
-      const deleted = profiles.filter(p => p.role !== 'admin' && p.deleted_at);
-      $('totalUsers').textContent = users.length;
-      $('activeUsers').textContent = users.filter(p => p.is_active !== false).length;
-      $('disabledUsers').textContent = users.filter(p => p.is_active === false).length;
-      renderUsersTable(users); renderDeletedUsersTable(deleted); renderAdminPhotos();
+      if (!currentProfile || currentProfile.role !== 'super_admin') return;
+      try {
+        // Les photos restent gérées par Supabase avec les politiques RLS de site_photos.
+        await loadPhotos();
+
+        const [statsResult, usersResult] = await Promise.all([
+          callAdminApi('stats'),
+          callAdminApi('list_users', { page: 1, perPage: 100 })
+        ]);
+
+        const stats = statsResult.statistics || statsResult.stats || {};
+        const apiUsers = getApiUsers(usersResult).map(normalizeApiUser);
+        const ordinaryUsers = apiUsers.filter(user =>
+          user.role !== 'super_admin' && user.role !== 'admin'
+        );
+
+        $('totalUsers').textContent = readStat(
+          stats, ['total', 'totalUsers', 'total_users'], apiUsers.length
+        );
+        $('activeUsers').textContent = readStat(
+          stats, ['active', 'actif', 'activeUsers', 'active_users'],
+          ordinaryUsers.filter(user => user.is_active !== false).length
+        );
+        $('disabledUsers').textContent = readStat(
+          stats, ['inactive', 'inactif', 'disabled', 'disabledUsers', 'inactive_users'],
+          ordinaryUsers.filter(user => user.is_active === false).length
+        );
+
+        renderUsersTable(ordinaryUsers);
+        renderDeletedUsersTable([]);
+        renderAdminPhotos();
+        setStatus('Administration connectée à admin-api. Statistiques et utilisateurs chargés.', false);
+      } catch (error) {
+        console.error('Erreur admin-api :', error);
+        setStatus('Erreur de chargement admin-api : ' + (error.message || 'erreur inconnue'), true);
+        $('usersTableBody').replaceChildren();
+        const row = document.createElement('tr');
+        const cell = addCell(row, 'Impossible de charger les utilisateurs : ' + (error.message || 'erreur inconnue'));
+        cell.colSpan = 6;
+        cell.className = 'empty-message';
+        $('usersTableBody').appendChild(row);
+      }
     }
+
     function addCell(row, value) { const cell = document.createElement('td'); cell.textContent = value == null ? '' : String(value); row.appendChild(cell); return cell; }
     function renderUsersTable(users) {
-      const body = $('usersTableBody'); body.replaceChildren();
-      if (!users.length) { const row = document.createElement('tr'); const cell = addCell(row, 'Aucun utilisateur inscrit.'); cell.colSpan = 6; cell.className = 'empty-message'; body.appendChild(row); return; }
+      const body = $('usersTableBody');
+      body.replaceChildren();
+      if (!users.length) {
+        const row = document.createElement('tr');
+        const cell = addCell(row, 'Aucun utilisateur à afficher.');
+        cell.colSpan = 6;
+        cell.className = 'empty-message';
+        body.appendChild(row);
+        return;
+      }
+
       users.forEach(profile => {
-        const row = document.createElement('tr'); addCell(row, profile.full_name || 'Sans nom'); addCell(row, profile.email); addCell(row, formatDate(profile.created_at)); addCell(row, profile.login_count || 0);
-        const statusCell = document.createElement('td'); const status = document.createElement('span'); status.className = profile.is_active === false ? 'status-disabled' : 'status-active'; status.textContent = profile.is_active === false ? 'Désactivé' : 'Actif'; statusCell.appendChild(status); row.appendChild(statusCell);
+        const row = document.createElement('tr');
+        addCell(row, profile.full_name || 'Sans nom');
+        addCell(row, profile.email);
+        addCell(row, formatDate(profile.created_at));
+        addCell(row, profile.login_count || 0);
+
+        const statusCell = document.createElement('td');
+        const status = document.createElement('span');
+        status.className = profile.is_active === false ? 'status-disabled' : 'status-active';
+        status.textContent = profile.is_active === false ? 'Désactivé' : 'Actif';
+        statusCell.appendChild(status);
+        row.appendChild(statusCell);
+
         const actions = document.createElement('td');
-        const toggle = document.createElement('button'); toggle.type='button'; toggle.className='action-btn ' + (profile.is_active === false ? 'activate-btn' : 'deactivate-btn'); toggle.textContent=profile.is_active === false?'Activer':'Désactiver';
-        toggle.addEventListener('click', async () => { const {error}=await supabaseClient.from('profiles').update({is_active:profile.is_active===false}).eq('id',profile.id); if(error){alert(error.message);return;} await renderAdminDashboard(); });
-        const remove = document.createElement('button'); remove.type='button'; remove.className='action-btn delete-user-btn'; remove.textContent='Corbeille';
-        remove.addEventListener('click', async () => { if(!confirm('Placer ce compte dans la corbeille ?'))return; const {error}=await supabaseClient.from('profiles').update({deleted_at:new Date().toISOString(),is_active:false}).eq('id',profile.id); if(error){alert(error.message);return;} await renderAdminDashboard(); });
-        actions.append(toggle, remove); row.appendChild(actions); body.appendChild(row);
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'action-btn ' + (profile.is_active === false ? 'activate-btn' : 'deactivate-btn');
+        toggle.textContent = profile.is_active === false ? 'Activer' : 'Désactiver';
+        toggle.addEventListener('click', async () => {
+          toggle.disabled = true;
+          try {
+            await callAdminApi('set_active', {
+              userId: profile.id,
+              active: profile.is_active === false
+            });
+            await renderAdminDashboard();
+          } catch (error) {
+            alert('Modification impossible : ' + (error.message || 'erreur inconnue'));
+            toggle.disabled = false;
+          }
+        });
+
+        // L'API actuelle réalise une suppression Auth définitive, pas une mise en corbeille.
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'action-btn delete-user-btn';
+        remove.textContent = 'Supprimer définitivement';
+        remove.addEventListener('click', async () => {
+          const confirmed = window.confirm(
+            'Attention : cette action supprime définitivement ce compte utilisateur de Supabase Auth. Elle ne le place pas dans une corbeille. Continuer ?'
+          );
+          if (!confirmed) return;
+          remove.disabled = true;
+          try {
+            await callAdminApi('supprimer_utilisateur', { userId: profile.id });
+            await renderAdminDashboard();
+          } catch (error) {
+            alert('Suppression impossible : ' + (error.message || 'erreur inconnue'));
+            remove.disabled = false;
+          }
+        });
+
+        actions.append(toggle, remove);
+        row.appendChild(actions);
+        body.appendChild(row);
       });
     }
     function renderDeletedUsersTable(users) {
-      const body = $('deletedUsersTableBody'); body.replaceChildren();
-      if (!users.length) { const row=document.createElement('tr'); const cell=addCell(row,'La corbeille est vide.'); cell.colSpan=5; cell.className='empty-message'; body.appendChild(row); return; }
-      users.forEach(profile => {
-        const row=document.createElement('tr'); addCell(row,profile.full_name||'Sans nom'); addCell(row,profile.email); addCell(row,formatDate(profile.created_at)); addCell(row,profile.login_count||0);
-        const actions=document.createElement('td'); const restore=document.createElement('button'); restore.type='button'; restore.className='action-btn activate-btn'; restore.textContent='Restaurer';
-        restore.addEventListener('click',async()=>{const {error}=await supabaseClient.from('profiles').update({deleted_at:null,is_active:true}).eq('id',profile.id);if(error){alert(error.message);return;}await renderAdminDashboard();});
-        actions.appendChild(restore);row.appendChild(actions);body.appendChild(row);
-      });
+      const body = $('deletedUsersTableBody');
+      body.replaceChildren();
+      // admin-api ne propose actuellement ni action de corbeille ni action de restauration.
+      const row = document.createElement('tr');
+      const cell = addCell(
+        row,
+        'La fonction admin-api actuelle ne gère pas de corbeille. Utilisez Activer/Désactiver ou la suppression définitive avec confirmation.'
+      );
+      cell.colSpan = 5;
+      cell.className = 'empty-message';
+      body.appendChild(row);
     }
 
     function showPage(pageName) {
@@ -561,5 +722,3 @@
   </script>
 </body>
 </html>
-                                                           }
-             
